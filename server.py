@@ -1,52 +1,52 @@
 import socket, sys, select
 from collections import deque
 
-try:
-    port = int(sys.argv[1])
-except:
-    port = 40000
+def serve(port: int) -> None:
 
-serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-serversocket.bind(("localhost", port))
-serversocket.setblocking(False)
-serversocket.listen(5)
+    serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    serversocket.bind((socket.gethostname(), port))
+    serversocket.setblocking(False)
+    serversocket.listen(5)
 
-players = []
-spectators = []
+    players = []
+    spectators = []
 
-print(f"Server started on port {port}")
+    print(f"Server started on port {port}")
 
-def cleanup():
-    serversocket.close()
-    for p in players:
-        p.close()
-    for s in spectators:
-        s.close()
-
-while True:
-    ready_read, ready_write, _ = select.select([serversocket] + players, players + spectators, [])
-
-    if serversocket in ready_read:
-        (client, address) = serversocket.accept()
-
-        print(f"Connection estabilished: {address}")
-
-        if len(players) < 2:
-            players.append(client)
-        else:
-            spectators.append(client)
-        ready_read.remove(serversocket)
-    for sock in ready_read:
-        msg = sock.recv(2048)
-        if msg == b'':
-            cleanup()
-            raise Exception("Socket closed")
-        print(msg)
+    def cleanup():
+        serversocket.close()
         for p in players:
-            if p == sock:
-                continue
-            p.send(msg)
+            p.close()
         for s in spectators:
-            s.send(msg)
-    ready_read.clear()
+            s.close()
 
+    while True:
+        ready_read, ready_write, _ = select.select([serversocket] + players, players + spectators, [])
+
+        if serversocket in ready_read:
+            (client, address) = serversocket.accept()
+
+            print(f"Connection estabilished: {address}")
+
+            if len(players) < 2:
+                players.append(client)
+            else:
+                spectators.append(client)
+            ready_read.remove(serversocket)
+        for sock in ready_read:
+            msg = sock.recv(2048)
+            if msg == b'':
+                cleanup()
+                raise Exception("Socket closed")
+            print(msg)
+            for p in players:
+                if p == sock:
+                    continue
+                p.send(msg)
+            for s in spectators:
+                s.send(msg)
+        ready_read.clear()
+
+
+if __name__ == "__main__":
+    serve(40000 if len(sys.argv) == 1 else sys.argv[1])
