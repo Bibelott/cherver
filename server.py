@@ -1,6 +1,9 @@
 import socket, sys, select
 from enum import Enum
 
+class IncorrectMove(Exception):
+    pass
+
 class Connection:
 
     def __init__(self, sock: socket.socket) -> None:
@@ -244,7 +247,34 @@ class Game:
         return FEN
 
     def make_move(self, player: Player, move: str) -> None:
-        pass
+        if len(move) != 4:
+            raise IncorrectMove()
+        
+        src_r, src_f = self.decode_alg(move[:2])
+        dst_r, dst_f = self.decode_alg(move[2:])
+
+        if self.board[src_r][src_f] == Piece.NONE:
+            raise IncorrectMove("Cannot move a NULL piece", move)
+
+        if (self.board[src_r][src_f] & 8) != self.turn << 3:
+            raise IncorrectMove()
+
+        self.board[dst_r][dst_f] = self.board[src_r][src_f]
+        self.board[src_r][src_f] = Piece.NONE
+
+    @staticmethod
+    def decode_alg(alg: str) -> (int, int):
+        if len(alg) != 2:
+            raise IncorrectMove("Incorrect length of algebraic position", alg)
+
+        file = ord(alg[0]) - ord('a')
+        rank = 8 - int(alg[1])
+
+        if file < 0 or file >= 8 or rank < 0 or rank >= 8:
+            raise IncorrectMove("Incorrect position", alg)
+
+        return (rank, file)
+
 
     def init_con(self, sock: socket.socket) -> Connection:
         msg = ""
@@ -325,34 +355,6 @@ class Game:
 
                 ready_read.remove(self.serversocket)
 
-            for sock in ready_read:
-                if self.white.sock == sock:
-                    player = self.white
-                else:
-                    player = self.black
-
-                msg = player.read()
-
-                if msg == None:
-                    continue
-
-                print(("White: " if player == self.white else "Black: ") + msg)
-
-                try:
-                    self.make_move(player, msg)
-                    player.queue_write("ok")
-                    if self.turn == self.BLACK_TURN:
-                        self.move += 1
-                    self.turn ^= 1
-                    self.caclock += 1
-                except:
-                    player.queue_write("no")
-
-                for c in self.write_to:
-                    if c == player:
-                        continue
-                    c.queue_write(msg)
-
             for sock in ready_write:
                 for c in self.write_to:
                     if c.sock == sock:
@@ -371,13 +373,51 @@ class Game:
             if not self.in_progress and self.white is not None and self.black is not None:
                 self.in_progress = True
 
-            if self.in_progress:
-                read_from = [self.serversocket]
+            if len(ready_read) == 0 or not self.in_progress:
+                continue
 
-                if self.turn == self.WHITE_TURN:
-                    read_from.append(self.white.sock)
-                else:
-                    read_from.append(self.black.sock)
+            # Read move
+
+            sock = ready_read[0]
+
+            if self.white.sock == sock:
+                player = self.white
+            else:
+                player = self.black
+
+            if (self.turn == self.WHITE_TURN and player == self.black) or (self.turn == self.BLACK_TURN and player == self.white):
+                raise Exception("Wrong player made a move. That shouldn't be possible")
+
+            msg = player.read()
+
+            if msg == None:
+                continue
+
+            print(("White: " if player == self.white else "Black: ") + msg)
+
+            try:
+                self.make_move(player, msg)
+                player.queue_write("ok")
+                if self.turn == self.BLACK_TURN:
+                    self.move += 1
+                self.turn ^= 1
+                self.caclock += 1
+            except IncorrectMove:
+                player.queue_write("no")
+                continue
+
+            for c in self.write_to:
+                if c == player:
+                    continue
+                c.queue_write(msg)
+
+
+            read_from = [self.serversocket]
+
+            if self.turn == self.WHITE_TURN:
+                read_from.append(self.white.sock)
+            else:
+                read_from.append(self.black.sock)
 
     @staticmethod
     def blocking_read(sock: socket.socket) -> str:
