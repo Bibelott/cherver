@@ -1,4 +1,5 @@
 import socket, sys, select
+from enum import Enum
 
 class Connection:
 
@@ -18,6 +19,11 @@ class Connection:
             raise Exception("Socket closed unexpectedly")
 
         self.send_queue = self.send_queue[sent:]
+
+    def blocking_write(self, msg: str) -> None:
+        self.queue_write(msg)
+        while not self.queue_empty:
+            self.write()
 
     @property
     def queue_empty(self) -> bool:
@@ -59,7 +65,34 @@ class Player(Connection):
 
         return None
 
+    def blocking_read(self) -> str:
+        while (msg := read) is None:
+            pass
+        return msg
+
+class Piece(Enum):
+    NONE = 0
+
+    PAWN_W = 1
+    ROOK_W = 2
+    KNIGHT_W = 3
+    BISHOP_W = 4
+    QUEEN_W = 5
+    KING_W = 6
+
+    PAWN_B = 9
+    ROOK_B = 10
+    KNIGHT_B = 11
+    BISHOP_B = 12
+    QUEEN_B = 13
+    KING_B = 14
+
 class Game:
+
+    START_POS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+    WHITE_TURN = 0
+    BLACK_TURN = 1
 
     def __init__(self) -> None:
 
@@ -72,11 +105,188 @@ class Game:
         self.serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.serversocket.setblocking(False)
 
+        self.move = 1
+        self.caclock = 0
+
+        self.in_progress = False
+
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.shutdown()
+
+    def fen_decode(self, FEN: str) -> None:
+
+        self.board: list[list[Piece]] = []
+
+        rank: list[Piece] = []
+        for i, p in enumerate(FEN):
+            at = i
+            match p:
+                case 'P':
+                    rank.append(Piece.PAWN_W)
+                case 'R':
+                    rank.append(Piece.ROOK_W)
+                case 'N':
+                    rank.append(Piece.KNIGHT_W)
+                case 'B':
+                    rank.append(Piece.BISHOP_W)
+                case 'Q':
+                    rank.append(Piece.QUEEN_W)
+                case 'K':
+                    rank.append(Piece.KING_W)
+
+                case 'p':
+                    rank.append(Piece.PAWN_B)
+                case 'r':
+                    rank.append(Piece.ROOK_B)
+                case 'n':
+                    rank.append(Piece.KNIGHT_B)
+                case 'b':
+                    rank.append(Piece.BISHOP_B)
+                case 'q':
+                    rank.append(Piece.QUEEN_B)
+                case 'k':
+                    rank.append(Piece.KING_B)
+
+                case '/':
+                    if len(rank) != 8:
+                        raise Exception("Incorrect FEN string", FEN)
+
+                    self.board.append(rank.copy())
+                    rank.clear()
+
+                case ' ':
+                    if len(rank) != 8:
+                        raise Exception("Incorrect FEN string", FEN)
+
+                    self.board.append(rank.copy())
+                    break
+
+                case _:
+                    rank.extend([Piece.NONE for _ in range(int(p))])
+
+        i += 1
+
+        if FEN[i] == 'w':
+            self.turn = self.WHITE_TURN
+        elif FEN[i] == 'b':
+            self.turn == self.BLACK_TURN
+        else:
+            raise Exception("Incorrect FEN string", FEN)
+        
+        i += 9
+
+        next_space = FEN.find(" ", i)
+        self.caclock = int(FEN[i:next_space])
+
+        i = next_space + 1
+
+        self.move = int(FEN[i:])
+            
+
+    def fen_encode(self) -> str:
+
+        FEN = ""
+
+        for rank in self.board:
+            no_len = 0
+            for piece in rank:
+                if piece == Piece.NONE:
+                    no_len += 1
+                    continue
+                
+                if no_len > 0:
+                    FEN += str(no_len)
+                    no_len = 0
+
+                match piece:
+                    case Piece.PAWN_W:
+                        FEN += 'P'
+                    case Piece.ROOK_W:
+                        FEN += 'R'
+                    case Piece.KNIGHT_W:
+                        FEN += 'N'
+                    case Piece.BISHOP_W:
+                        FEN += 'B'
+                    case Piece.QUEEN_W:
+                        FEN += 'Q'
+                    case Piece.KING_W:
+                        FEN += 'K'
+
+                    case Piece.PAWN_B:
+                        FEN += 'p'
+                    case Piece.ROOK_B:
+                        FEN += 'r'
+                    case Piece.KNIGHT_B:
+                        FEN += 'n'
+                    case Piece.BISHOP_B:
+                        FEN += 'b'
+                    case Piece.QUEEN_B:
+                        FEN += 'q'
+                    case Piece.KING_B:
+                        FEN += 'k'
+
+            FEN += '/'
+
+        FEN += ' '
+        FEN += 'w' if self.turn == self.WHITE_TURN else 'b'
+
+        FEN += 'KQkq'  # Change when we have castling
+        FEN += ' '
+        FEN += '-'  # Change when we have en passant
+        FEN += ' '
+        FEN += str(self.caclock)
+        FEN += ' '
+        FEN += str(self.move)
+
+        return FEN
+
+    def make_move(self, player: Player, move: str) -> None:
+        pass
+
+    def init_con(self, sock: socket.socket) -> Connection:
+        msg = ""
+        
+        if self.white is None:
+            msg += "w"
+        
+        if self.black is None:
+            msg += "b"
+
+        msg += "s"
+
+        self.blocking_write(sock, msg)
+
+        resp = self.blocking_read(sock)
+
+        if len(resp) != 1:
+            raise Exception("Incorrect response")
+
+        if msg == "w":
+            if self.white is not None:
+                raise Exception("Incorrect response")
+            
+            con = Player(sock)
+            self.white = con
+            self.write_to.append(con)
+
+        elif msg == "b":
+            if self.black is not None:
+                raise Exception("Incorrect response")
+            
+            con = Player(sock)
+            self.black = con
+            self.write_to.append(con)
+
+        elif msg == "s":
+            con = Connection(sock)
+            self.write_to.append(con)
+
+        self.blocking_write(sock, "initok")
+
+        return con
 
     def shutdown(self) -> None:
         print("Shutting down...")
@@ -87,7 +297,7 @@ class Game:
 
         self.serversocket.close()
         
-    def serve(self, port: int) -> None:
+    def serve(self, port: int, pos: str = START_POS) -> None:
 
         self.serversocket.bind((socket.gethostname(), port))
         self.serversocket.listen(5)
@@ -95,6 +305,8 @@ class Game:
         print(f"Server started on port {port}")
 
         read_from = [self.serversocket]
+
+        self.fen_decode(pos)
 
         while True:
             ready_read, ready_write, _ = select.select(read_from, [c.sock for c in self.write_to if not c.queue_empty], [], 0.5)
@@ -104,18 +316,13 @@ class Game:
 
                 print(f"Connection estabilished: {address}")
 
-                if self.white is None or self.black is None:
-                    player = Player(client)
+                try:
+                    con = self.init_con(client)
+                except Exception as err:
+                    print(f"Failed to initialize connection, because '{err}'. Shutting it down")
+                    self.blocking_write(client, "initfail")
+                    client.close()
 
-                    if self.white is None:
-                        self.white = player
-                    else:
-                        self.black = player
-
-                    self.write_to.append(player)
-                    read_from.append(player.sock)
-                else:
-                    self.write_to.append(Connection(client))
                 ready_read.remove(self.serversocket)
 
             for sock in ready_read:
@@ -129,7 +336,17 @@ class Game:
                 if msg == None:
                     continue
 
-                print(msg)
+                print(("White: " if player == self.white else "Black: ") + msg)
+
+                try:
+                    self.make_move(player, msg)
+                    player.queue_write("ok")
+                    if self.turn == self.BLACK_TURN:
+                        self.move += 1
+                    self.turn ^= 1
+                    self.caclock += 1
+                except:
+                    player.queue_write("no")
 
                 for c in self.write_to:
                     if c == player:
@@ -151,10 +368,75 @@ class Game:
                     else:
                         raise Exception("Socket closed unexpectedly")
 
+            if not self.in_progress and self.white is not None and self.black is not None:
+                self.in_progress = True
+
+            if self.in_progress:
+                read_from = [self.serversocket]
+
+                if self.turn == self.WHITE_TURN:
+                    read_from.append(self.white.sock)
+                else:
+                    read_from.append(self.black.sock)
+
+    @staticmethod
+    def blocking_read(sock: socket.socket) -> str:
+        blocking = sock.getblocking()
+        sock.setblocking(True)
+
+        read_buf = bytearray(1024)
+        view = memoryview(read_buf)
+
+        read_prog = 0
+        msg_len = 3
+
+        while read_prog < msg_len:
+            recvd = sock.recv_into(view[read_prog:], msg_len - read_prog)
+
+            if recvd == 0:
+                raise Exception("Socket closed unexpectedly")
+
+            read_prog += recvd
+
+        msg_len = int(read_buf[:msg_len].decode("ascii"))
+        read_prog = 0
+
+        while read_prog < msg_len:
+            recvd = sock.recv_into(view[read_prog:], msg_len - read_prog)
+
+            if recvd == 0:
+                raise Exception("Socket closed unexpectedly")
+
+            read_prog += recvd
+
+        sock.setblocking(blocking)
+
+        return read_buf[:msg_len].decode("ascii")
+
+    @staticmethod
+    def blocking_write(sock: socket.socket, msg: str) -> None:
+        blocking = sock.getblocking()
+        sock.setblocking(True)
+
+        msg = bytearray(f"{str(len(msg)).rjust(3)}{msg}", encoding="ascii")
+        view = memoryview(msg)
+        write_prog = 0
+        msg_len = len(msg)
+
+        while write_prog < msg_len:
+            sent = sock.send(view[write_prog:])
+
+            if sent == 0:
+                raise Exception("Socket closed unexpectedly")
+
+            write_prog += sent
+
+        sock.setblocking(blocking)
+
 
 if __name__ == "__main__":
     with Game() as game:
         try:
-            game.serve(40000 if len(sys.argv) == 1 else int(sys.argv[1]))
-        except:
-            pass
+            game.serve(40000 if len(sys.argv) == 1 else int(sys.argv[1]), game.START_POS if len(sys.argv) < 3 else sys.argv[2])
+        except Exception as err:
+            print(err)
