@@ -256,7 +256,7 @@ class Game:
         if self.board[src_r][src_f] == Piece.NONE:
             raise IncorrectMove("Cannot move a NULL piece", move)
 
-        if (self.board[src_r][src_f] & 8) != self.turn << 3:
+        if (self.board[src_r][src_f].value & 8) != self.turn << 3:
             raise IncorrectMove()
 
         self.board[dst_r][dst_f] = self.board[src_r][src_f]
@@ -294,7 +294,7 @@ class Game:
         if len(resp) != 1:
             raise Exception("Incorrect response")
 
-        if msg == "w":
+        if resp == "w":
             if self.white is not None:
                 raise Exception("Incorrect response")
             
@@ -302,7 +302,7 @@ class Game:
             self.white = con
             self.write_to.append(con)
 
-        elif msg == "b":
+        elif resp == "b":
             if self.black is not None:
                 raise Exception("Incorrect response")
             
@@ -310,7 +310,7 @@ class Game:
             self.black = con
             self.write_to.append(con)
 
-        elif msg == "s":
+        elif resp == "s":
             con = Connection(sock)
             self.write_to.append(con)
 
@@ -348,6 +348,8 @@ class Game:
 
                 try:
                     con = self.init_con(client)
+                    if con == self.white or con == self.black:
+                        read_from.append(con.sock)
                 except Exception as err:
                     print(f"Failed to initialize connection, because '{err}'. Shutting it down")
                     self.blocking_write(client, "initfail")
@@ -372,6 +374,31 @@ class Game:
 
             if not self.in_progress and self.white is not None and self.black is not None:
                 self.in_progress = True
+                read_from = [self.serversocket]
+
+                if self.turn == self.WHITE_TURN:
+                    read_from.append(self.white.sock)
+                else:
+                    read_from.append(self.black.sock)
+
+            if not self.in_progress:
+                for sock in ready_read:
+                    if self.white is not None and self.white.sock == sock:
+                        con = self.white
+                    else:
+                        con = self.black
+                    
+                    try:
+                        msg = con.read()
+                    except:
+                        print(f"Connection at {con.sock.getpeername()} closed")
+                        con.sock.close()
+                        if con == self.white:
+                            self.white = None
+                        elif con == self.black:
+                            self.black = None
+                        read_from.remove(sock)
+                        self.write_to.remove(con)
 
             if len(ready_read) == 0 or not self.in_progress:
                 continue
@@ -398,12 +425,14 @@ class Game:
             try:
                 self.make_move(player, msg)
                 player.queue_write("ok")
+                print("ok")
                 if self.turn == self.BLACK_TURN:
                     self.move += 1
                 self.turn ^= 1
                 self.caclock += 1
             except IncorrectMove:
                 player.queue_write("no")
+                print("no")
                 continue
 
             for c in self.write_to:
