@@ -264,13 +264,20 @@ class Game:
             if self.get_piece(r - 1, f) == Piece.NONE:
                 moves.append((r - 1, f))
                 if r == 6:
-                    moves.append((r - 2, f))
+                    if self.get_piece(r - 2, f) == Piece.NONE:
+                        moves.append((r - 2, f))
 
-            if self.get_piece(r - 1, f - 1) not in [None, Piece.NONE]:
-                moves.append((r - 1, f - 1))
+            nr = r - 1
+            nf = f - 1
+            np = self.get_piece(nr, nf)
+            if np not in [None, Piece.NONE] and (np.value & 8 != piece.value & 8):
+                moves.append((nr, nf))
 
-            if self.get_piece(r - 1, f + 1) not in [None, Piece.NONE]:
-                moves.append((r - 1, f + 1))
+            nr = r - 1
+            nf = f + 1
+            np = self.get_piece(nr, nf)
+            if np not in [None, Piece.NONE] and (np.value & 8 != piece.value & 8):
+                moves.append((nr, nf))
 
         elif piece == Piece.PAWN_B:
             if self.get_piece(r + 1, f) == Piece.NONE:
@@ -278,11 +285,17 @@ class Game:
                 if r == 1:
                     moves.append((r + 2, f))
 
-            if self.get_piece(r + 1, f - 1) not in [None, Piece.NONE]:
-                moves.append((r + 1, f - 1))
+            nr = r + 1
+            nf = f - 1
+            np = self.get_piece(nr, nf)
+            if np not in [None, Piece.NONE] and (np.value & 8 != piece.value & 8):
+                moves.append((nr, nf))
 
-            if self.get_piece(r + 1, f + 1) not in [None, Piece.NONE]:
-                moves.append((r + 1, f + 1))
+            nr = r + 1
+            nf = f + 1
+            np = self.get_piece(nr, nf)
+            if np not in [None, Piece.NONE] and (np.value & 8 != piece.value & 8):
+                moves.append((nr, nf))
 
         elif piece in [Piece.KNIGHT_W, Piece.KNIGHT_B]:
             for (nr, nf) in [(r - 2, f - 1), (r - 2, f + 1), (r - 1, f + 2), (r + 1, f + 2), (r + 2, f - 1), (r + 2, f + 1), (r - 1, f - 2), (r + 1, f - 2)]:
@@ -402,6 +415,16 @@ class Game:
             raise IncorrectMove("Incorrect position", alg)
 
         return (rank, file)
+
+    @staticmethod
+    def encode_alg(rank: int, file: int) -> str:
+        if file < 0 or file >= 8 or rank < 0 or rank >= 8:
+            raise IncorrectMove("Incorrect position", rank, file)
+
+        f = chr(ord('a') + file)
+        r = str(8 - rank)
+
+        return f + r
 
 
     def init_con(self, sock: socket.socket) -> Connection:
@@ -549,6 +572,21 @@ class Game:
                 continue
 
             print(("White: " if player == self.white else "Black: ") + msg)
+
+            if msg.startswith("moves "):
+                try:
+                    (r, f) = self.decode_alg(msg[6:8])
+                    moves = self.get_possible_moves(r, f)
+                    resp = "moves " + msg[6:8] + " "
+                    for move in moves:
+                        resp += self.encode_alg(move[0], move[1])
+                    player.queue_write(resp)
+                    print(resp)
+                    continue
+                except IncorrectMove:
+                    player.queue_write("no")
+                    print("no")
+                    continue
 
             try:
                 self.make_move(player, msg)
