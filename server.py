@@ -246,6 +246,129 @@ class Game:
 
         return FEN
 
+    def get_piece(self, r: int, f: int) -> Piece | None:
+        if r < 0 or r >= 8 or f < 0 or f >= 8:
+            return None
+        
+        return self.board[r][f]
+    
+    def get_possible_moves(self, r: int, f: int) -> list[tuple[int, int]]:
+        piece = self.board[r][f]
+
+        moves: list[tuple[int, int]] = []
+
+        if piece == Piece.NONE:
+            return []
+
+        elif piece == Piece.PAWN_W:
+            if self.get_piece(r - 1, f) == Piece.NONE:
+                moves.append((r - 1, f))
+                if r == 6:
+                    moves.append((r - 2, f))
+
+            if self.get_piece(r - 1, f - 1) not in [None, Piece.NONE]:
+                moves.append((r - 1, f - 1))
+
+            if self.get_piece(r - 1, f + 1) not in [None, Piece.NONE]:
+                moves.append((r - 1, f + 1))
+
+        elif piece == Piece.PAWN_B:
+            if self.get_piece(r + 1, f) == Piece.NONE:
+                moves.append((r + 1, f))
+                if r == 1:
+                    moves.append((r + 2, f))
+
+            if self.get_piece(r + 1, f - 1) not in [None, Piece.NONE]:
+                moves.append((r + 1, f - 1))
+
+            if self.get_piece(r + 1, f + 1) not in [None, Piece.NONE]:
+                moves.append((r + 1, f + 1))
+
+        elif piece in [Piece.KNIGHT_W, Piece.KNIGHT_B]:
+            for (nr, nf) in [(r - 2, f - 1), (r - 2, f + 1), (r - 1, f + 2), (r + 1, f + 2), (r + 2, f - 1), (r + 2, f + 1), (r - 1, f - 2), (r + 1, f - 2)]:
+                np = self.get_piece(nr, nf)
+                if np != Piece.NONE and (np == None or (piece.value & 8 == np.value & 8)):
+                    continue
+
+                moves.append((nr, nf))
+
+        elif piece in [Piece.KING_W, Piece.KING_B]:
+            for nr in [r - 1, r, r + 1]:
+                for nf in [f - 1, f, f + 1]:
+                    if (nr, nf) == (r, f):
+                        continue
+
+                    np = self.get_piece(nr, nf)
+
+                    if np != Piece.NONE and (np == None or (piece.value & 8 == np.value & 8)):
+                        continue
+
+                    moves.append((nr, nf))
+
+        if piece in [Piece.ROOK_W, Piece.ROOK_B, Piece.QUEEN_W, Piece.QUEEN_B]:
+            for nr in range(r + 1, 8):
+                np = self.get_piece(nr, f)
+
+                if np not in [None, Piece.NONE] and (piece.value & 8 == np.value & 8):  # Same color
+                    break
+
+                moves.append((nr, f))
+
+                if np != Piece.NONE:
+                    break
+            
+            for nr in range(r - 1, -1, -1):
+                np = self.get_piece(nr, f)
+
+                if np not in [None, Piece.NONE] and (piece.value & 8 == np.value & 8):  # Same color
+                    break
+
+                moves.append((nr, f))
+                if np != Piece.NONE:
+                    break
+
+            for nf in range(f + 1, 8):
+                np = self.get_piece(r, nf)
+
+                if np not in [None, Piece.NONE] and (piece.value & 8 == np.value & 8):  # Same color
+                    break
+
+                moves.append((r, nf))
+                if np != Piece.NONE:
+                    break
+            
+            for nf in range(f - 1, -1, -1):
+                np = self.get_piece(r, nf)
+
+                if np not in [None, Piece.NONE] and (piece.value & 8 == np.value & 8):  # Same color
+                    break
+
+                moves.append((r, nf))
+                if np != Piece.NONE:
+                    break
+
+        if piece in [Piece.BISHOP_W, Piece.BISHOP_B, Piece.QUEEN_W, Piece.QUEEN_B]:
+            for (ar, af) in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+                nr = r + ar
+                nf = f + af
+                while True:
+                    np = self.get_piece(nr, nf)
+                    if np == None:
+                        break
+
+                    if np != Piece.NONE and (piece.value & 8 == np.value & 8):  # Same color
+                        break
+
+                    moves.append((nr, nf))
+
+                    if np != Piece.NONE:
+                        break
+
+                    nr += ar
+                    nf += af
+        
+        return moves
+
     def make_move(self, player: Player, move: str) -> None:
         if len(move) != 4:
             raise IncorrectMove()
@@ -258,12 +381,17 @@ class Game:
 
         if (self.board[src_r][src_f].value & 8) != self.turn << 3:
             raise IncorrectMove()
+        
+        moves = self.get_possible_moves(src_r, src_f)
+
+        if (dst_r, dst_f) not in moves:
+            raise IncorrectMove()
 
         self.board[dst_r][dst_f] = self.board[src_r][src_f]
         self.board[src_r][src_f] = Piece.NONE
 
     @staticmethod
-    def decode_alg(alg: str) -> (int, int):
+    def decode_alg(alg: str) -> tuple[int, int]:
         if len(alg) != 2:
             raise IncorrectMove("Incorrect length of algebraic position", alg)
 
