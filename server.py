@@ -113,6 +113,7 @@ class Game:
         self.caclock = 0
 
         self.in_progress = False
+        self.ended = False
 
     def __enter__(self):
         return self
@@ -276,6 +277,17 @@ class Game:
             return 0
         return -1
 
+    def has_moves(self, not_player: Player) -> bool:
+        color = int(not_player == self.white) << 3
+        for r, f in self.moves.keys():
+            if len(self.moves[(r, f)]) == 0:
+                continue
+            piece = self.get_piece(r, f)
+
+            if (piece.value & 8) == color:
+                return True
+
+        return False
 
     def will_check(self, src_r: int, src_f: int, dst_r: int, dst_f: int) -> int:  # -1 = no check, 0 = white will be checked, 1 = black will be checked, 2 = both will be checked
         origboard = copy.deepcopy(self.board)
@@ -610,7 +622,7 @@ class Game:
                     else:
                         raise Exception("Socket closed unexpectedly")
 
-            if not self.in_progress and self.white is not None and self.black is not None:
+            if not self.in_progress and self.white is not None and self.black is not None and not self.ended:
                 self.in_progress = True
                 read_from = [self.serversocket]
 
@@ -619,7 +631,7 @@ class Game:
                 else:
                     read_from.append(self.black.sock)
 
-            if not self.in_progress:
+            if not self.in_progress and not self.ended:
                 for sock in ready_read:
                     if self.white is not None and self.white.sock == sock:
                         con = self.white
@@ -637,6 +649,19 @@ class Game:
                             self.black = None
                         read_from.remove(sock)
                         self.write_to.remove(con)
+
+            if self.ended:
+                if len(self.write_to) == 0:
+                    return
+                
+                remove = []
+                for con in self.write_to:
+                    if con.queue_empty:
+                        print(f"Closing connection to {con.sock.getpeername()}")
+                        con.sock.close()
+                        remove.append(con)
+                for con in remove:
+                    self.write_to.remove(con)
 
             if len(ready_read) == 0 or not self.in_progress:
                 continue
@@ -676,13 +701,27 @@ class Game:
                     continue
 
             check = -1
+            has_moves = True
+            score = "0-0"
             try:
                 self.make_move(player, msg)
                 self.moves = self.get_all_legal_moves()
                 resp = "ok"
                 check = self.check_check()
+                has_moves = self.has_moves(player)
                 if check == (1 - self.turn):
-                    resp += "+"
+                    if has_moves:
+                        resp += "+"
+                    else:
+                        resp += "#"
+                        self.in_progress = False
+                        self.ended = True
+                        score = "1-0" if player == self.white else "0-1"
+                elif not has_moves:
+                    resp += "-"
+                    self.in_progress = False
+                    self.ended = True
+                    score = "1/2-1/2"
                 player.queue_write(resp)
                 print(resp)
                 if self.turn == self.BLACK_TURN:
@@ -695,12 +734,23 @@ class Game:
                 continue
 
             if check != -1:
-                msg += "+"
+                if has_moves:
+                    msg += "+"
+                else:
+                    msg += "#"
+            elif not has_moves:
+                msg += "-"
             for c in self.write_to:
                 if c == player:
                     continue
                 c.queue_write(msg)
 
+            if self.ended:
+                print(score)
+                for c in self.write_to:
+                    c.queue_write("end " + score)
+                read_from = []
+                continue
 
             read_from = [self.serversocket]
 
