@@ -1,5 +1,6 @@
 import socket, sys, select
 from enum import Enum
+import copy
 
 class IncorrectMove(Exception):
     pass
@@ -251,7 +252,43 @@ class Game:
             return None
         
         return self.board[r][f]
-    
+
+    def check_check(self, move_dict = None) -> int:  # -1 = no check, 0 = white is checked, 1 = black is checked, 2 = both checked
+        if move_dict is None:
+            move_dict = self.moves
+
+        white_checked = False
+        black_checked = False
+        for moves in move_dict.values():
+            for r, f in moves:
+                piece = self.get_piece(r, f)
+
+                if piece == Piece.KING_W:
+                    white_checked = True
+                if piece == Piece.KING_B:
+                    black_checked = True
+                
+        if white_checked and black_checked:
+            return 2
+        if black_checked:
+            return 1
+        if white_checked:
+            return 0
+        return -1
+
+
+    def will_check(self, src_r: int, src_f: int, dst_r: int, dst_f: int) -> int:  # -1 = no check, 0 = white will be checked, 1 = black will be checked, 2 = both will be checked
+        origboard = copy.deepcopy(self.board)
+         
+        self.board[dst_r][dst_f] = self.board[src_r][src_f]
+        self.board[src_r][src_f] = Piece.NONE
+
+        moves = self.get_all_moves()
+        check = self.check_check(moves)
+
+        self.board = origboard   
+        return check
+
     def get_possible_moves(self, r: int, f: int) -> list[tuple[int, int]]:
         piece = self.board[r][f]
 
@@ -382,6 +419,54 @@ class Game:
         
         return moves
 
+    def get_legal_moves(self, r: int, f: int) -> list[tuple[int, int]]:
+        moves = self.get_possible_moves(r, f)
+        p = self.get_piece(r, f)
+
+        remove: list[tuple[int, int]] = []
+
+        for nr, nf in moves:
+            check = self.will_check(r, f, nr, nf)
+            if check == 2 or check == ((p.value & 8) >> 3):  # Checked yourself
+                remove.append((nr, nf))
+
+        for move in remove:
+            moves.remove(move)
+
+        return moves
+
+    def get_all_moves(self) -> dict[tuple[int, int], list[tuple[int, int]]]:
+        moves = {}
+
+        for r in range(8):
+            for f in range(8):
+                piece = self.get_piece(r, f)
+
+                if piece == Piece.NONE:
+                    continue
+
+                nm = self.get_possible_moves(r, f)
+
+                moves[(r, f)] =  nm
+
+        return moves
+
+    def get_all_legal_moves(self) -> dict[tuple[int, int], list[tuple[int, int]]]:
+        moves = {}
+
+        for r in range(8):
+            for f in range(8):
+                piece = self.get_piece(r, f)
+
+                if piece == Piece.NONE:
+                    continue
+
+                nm = self.get_legal_moves(r, f)
+
+                moves[(r, f)] =  nm
+
+        return moves
+
     def make_move(self, player: Player, move: str) -> None:
         if len(move) != 4:
             raise IncorrectMove()
@@ -395,7 +480,7 @@ class Game:
         if (self.board[src_r][src_f].value & 8) != self.turn << 3:
             raise IncorrectMove()
         
-        moves = self.get_possible_moves(src_r, src_f)
+        moves = self.moves[(src_r, src_f)]
 
         if (dst_r, dst_f) not in moves:
             raise IncorrectMove()
@@ -489,6 +574,8 @@ class Game:
 
         self.fen_decode(pos)
 
+        self.moves = self.get_all_moves()
+
         while True:
             ready_read, ready_write, _ = select.select(read_from, [c.sock for c in self.write_to if not c.queue_empty], [], 0.5)
 
@@ -576,7 +663,7 @@ class Game:
             if msg.startswith("moves "):
                 try:
                     (r, f) = self.decode_alg(msg[6:8])
-                    moves = self.get_possible_moves(r, f)
+                    moves = self.moves[(r, f)]
                     resp = "moves " + msg[6:8] + " "
                     for move in moves:
                         resp += self.encode_alg(move[0], move[1])
@@ -588,10 +675,16 @@ class Game:
                     print("no")
                     continue
 
+            check = -1
             try:
                 self.make_move(player, msg)
-                player.queue_write("ok")
-                print("ok")
+                self.moves = self.get_all_legal_moves()
+                resp = "ok"
+                check = self.check_check()
+                if check == (1 - self.turn):
+                    resp += "+"
+                player.queue_write(resp)
+                print(resp)
                 if self.turn == self.BLACK_TURN:
                     self.move += 1
                 self.turn ^= 1
@@ -601,6 +694,8 @@ class Game:
                 print("no")
                 continue
 
+            if check != -1:
+                msg += "+"
             for c in self.write_to:
                 if c == player:
                     continue
