@@ -112,6 +112,8 @@ class Game:
         self.move = 1
         self.caclock = 0
 
+        self.en_passant_tgt = None
+
         self.in_progress = False
         self.ended = False
 
@@ -319,13 +321,13 @@ class Game:
             nr = r - 1
             nf = f - 1
             np = self.get_piece(nr, nf)
-            if np not in [None, Piece.NONE] and (np.value & 8 != piece.value & 8):
+            if (np not in [None, Piece.NONE] and (np.value & 8 != piece.value & 8)) or (nr, nf) == self.en_passant_tgt:
                 moves.append((nr, nf))
 
             nr = r - 1
             nf = f + 1
             np = self.get_piece(nr, nf)
-            if np not in [None, Piece.NONE] and (np.value & 8 != piece.value & 8):
+            if (np not in [None, Piece.NONE] and (np.value & 8 != piece.value & 8)) or (nr, nf) == self.en_passant_tgt:
                 moves.append((nr, nf))
 
         elif piece == Piece.PAWN_B:
@@ -337,13 +339,13 @@ class Game:
             nr = r + 1
             nf = f - 1
             np = self.get_piece(nr, nf)
-            if np not in [None, Piece.NONE] and (np.value & 8 != piece.value & 8):
+            if (np not in [None, Piece.NONE] and (np.value & 8 != piece.value & 8)) or (nr, nf) == self.en_passant_tgt:
                 moves.append((nr, nf))
 
             nr = r + 1
             nf = f + 1
             np = self.get_piece(nr, nf)
-            if np not in [None, Piece.NONE] and (np.value & 8 != piece.value & 8):
+            if (np not in [None, Piece.NONE] and (np.value & 8 != piece.value & 8)) or (nr, nf) == self.en_passant_tgt:
                 moves.append((nr, nf))
 
         elif piece in [Piece.KNIGHT_W, Piece.KNIGHT_B]:
@@ -496,6 +498,17 @@ class Game:
 
         if (dst_r, dst_f) not in moves:
             raise IncorrectMove()
+
+        if (dst_r, dst_f) == self.en_passant_tgt:
+            if dst_r == 5:
+                self.board[4][dst_f] = Piece.NONE
+            else:
+                self.board[3][dst_f] = Piece.NONE
+
+        self.en_passant_tgt = None
+
+        if self.get_piece(src_r, src_f) in [Piece.PAWN_W, Piece.PAWN_B] and abs(dst_r - src_r) == 2:
+            self.en_passant_tgt = (round((dst_r + src_r)/2), src_f)
 
         self.board[dst_r][dst_f] = self.board[src_r][src_f]
         self.board[src_r][src_f] = Piece.NONE
@@ -688,7 +701,7 @@ class Game:
             if msg.startswith("moves "):
                 try:
                     (r, f) = self.decode_alg(msg[6:8])
-                    moves = self.moves[(r, f)]
+                    moves = self.moves.get((r, f), [])
                     resp = "moves " + msg[6:8] + " "
                     for move in moves:
                         resp += self.encode_alg(move[0], move[1])
