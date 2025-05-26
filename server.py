@@ -266,17 +266,21 @@ class Game:
         
         return self.board[r][f]
 
-    def move_piece(self, orig_r: int, orig_f: int, tgt_r: int, tgt_f: int) -> None:
+    def move_piece(self, orig_r: int, orig_f: int, tgt_r: int, tgt_f: int, prom: Piece = Piece.NONE) -> None:
         piece = self.get_piece(orig_r, orig_f)
 
         if piece == None:
             raise ValueError("Tried moving NULL piece")
 
-        if (tgt_r, tgt_f) == self.en_passant_tgt:
+        if piece in [Piece.PAWN_W, Piece.PAWN_B] and (tgt_r, tgt_f) == self.en_passant_tgt:
             if tgt_r == 5:
                 self.board[4][tgt_f] = Piece.NONE
             else:
                 self.board[3][tgt_f] = Piece.NONE
+
+        if piece in [Piece.PAWN_W, Piece.PAWN_B]:
+            if tgt_r in [0, 7]:
+                piece = prom
 
         if piece in [Piece.KING_W, Piece.KING_B]:
             if tgt_f - orig_f == 2:
@@ -537,11 +541,12 @@ class Game:
 
 
     def make_move(self, player: Player, move: str) -> None:
-        if len(move) != 4:
+        length = len(move)
+        if length != 4 and length != 6:
             raise IncorrectMove()
         
         src_r, src_f = self.decode_alg(move[:2])
-        dst_r, dst_f = self.decode_alg(move[2:])
+        dst_r, dst_f = self.decode_alg(move[2:4])
 
         if self.board[src_r][src_f] == Piece.NONE:
             raise IncorrectMove("Cannot move a NULL piece", move)
@@ -557,6 +562,31 @@ class Game:
         next_en_passant = None
 
         piece = self.get_piece(src_r, src_f)
+
+        prom = Piece.NONE
+
+        if piece in [Piece.PAWN_W, Piece.PAWN_B] and dst_r in [0, 7] and length != 6:
+            raise IncorrectMove()
+
+        if length >= 6:
+            if piece not in [Piece.PAWN_W, Piece.PAWN_B]:
+                raise IncorrectMove()
+            if move[4] != '=':
+                raise IncorrectMove()
+            
+            match move[5]:
+                case 'Q':
+                    prom = Piece.QUEEN_W
+                case 'N':
+                    prom = Piece.KNIGHT_W
+                case 'R':
+                    prom = Piece.ROOK_W
+                case 'B':
+                    prom = Piece.BISHOP_W
+                case _:
+                    raise IncorrectMove("Incorrect promotion target")
+            
+            prom = Piece(prom.value | (piece.value & 8))
 
         if piece in [Piece.PAWN_W, Piece.PAWN_B] and abs(dst_r - src_r) == 2:
             next_en_passant = (round((dst_r + src_r)/2), src_f)
@@ -575,7 +605,7 @@ class Game:
             self.castle_pos[2] = False
             self.castle_pos[3] = False
 
-        self.move_piece(src_r, src_f, dst_r, dst_f)
+        self.move_piece(src_r, src_f, dst_r, dst_f, prom)
 
         self.en_passant_tgt = next_en_passant
 
