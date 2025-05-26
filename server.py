@@ -266,6 +266,29 @@ class Game:
         
         return self.board[r][f]
 
+    def move_piece(self, orig_r: int, orig_f: int, tgt_r: int, tgt_f: int) -> None:
+        piece = self.get_piece(orig_r, orig_f)
+
+        if piece == None:
+            raise ValueError("Tried moving NULL piece")
+
+        if (tgt_r, tgt_f) == self.en_passant_tgt:
+            if tgt_r == 5:
+                self.board[4][tgt_f] = Piece.NONE
+            else:
+                self.board[3][tgt_f] = Piece.NONE
+
+        if piece in [Piece.KING_W, Piece.KING_B]:
+            if tgt_f - orig_f == 2:
+                self.board[orig_r][orig_f + 1] = Piece(Piece.ROOK_W.value | (piece.value & 8))
+                self.board[orig_r][7] = Piece.NONE
+            elif tgt_f - orig_f == -2:
+                self.board[orig_r][orig_f - 1] = Piece(Piece.ROOK_W.value | (piece.value & 8))
+                self.board[orig_r][0] = Piece.NONE
+
+        self.board[tgt_r][tgt_f] = piece
+        self.board[orig_r][orig_f] = Piece.NONE
+
     def check_check(self, move_dict = None) -> int:  # -1 = no check, 0 = white is checked, 1 = black is checked, 2 = both checked
         if move_dict is None:
             move_dict = self.moves
@@ -304,8 +327,7 @@ class Game:
     def will_check(self, src_r: int, src_f: int, dst_r: int, dst_f: int) -> int:  # -1 = no check, 0 = white will be checked, 1 = black will be checked, 2 = both will be checked
         origboard = copy.deepcopy(self.board)
          
-        self.board[dst_r][dst_f] = self.board[src_r][src_f]
-        self.board[src_r][src_f] = Piece.NONE
+        self.move_piece(src_r, src_f, dst_r, dst_f)
 
         moves = self.get_all_moves()
         check = self.check_check(moves)
@@ -513,6 +535,7 @@ class Game:
 
         return moves
 
+
     def make_move(self, player: Player, move: str) -> None:
         if len(move) != 4:
             raise IncorrectMove()
@@ -531,18 +554,12 @@ class Game:
         if (dst_r, dst_f) not in moves:
             raise IncorrectMove()
 
-        if (dst_r, dst_f) == self.en_passant_tgt:
-            if dst_r == 5:
-                self.board[4][dst_f] = Piece.NONE
-            else:
-                self.board[3][dst_f] = Piece.NONE
-
-        self.en_passant_tgt = None
+        next_en_passant = None
 
         piece = self.get_piece(src_r, src_f)
 
         if piece in [Piece.PAWN_W, Piece.PAWN_B] and abs(dst_r - src_r) == 2:
-            self.en_passant_tgt = (round((dst_r + src_r)/2), src_f)
+            next_en_passant = (round((dst_r + src_r)/2), src_f)
 
         elif piece in [Piece.ROOK_W, Piece.ROOK_B]:
             if src_f == 0:
@@ -558,16 +575,9 @@ class Game:
             self.castle_pos[2] = False
             self.castle_pos[3] = False
 
-        if piece in [Piece.KING_W, Piece.KING_B]:
-            if dst_f - src_f == 2:
-                self.board[src_r][src_f + 1] = Piece(Piece.ROOK_W.value | (piece.value & 8))
-                self.board[src_r][7] = Piece.NONE
-            elif dst_f - src_f == -2:
-                self.board[src_r][src_f - 1] = Piece(Piece.ROOK_W.value | (piece.value & 8))
-                self.board[src_r][0] = Piece.NONE
+        self.move_piece(src_r, src_f, dst_r, dst_f)
 
-        self.board[dst_r][dst_f] = self.board[src_r][src_f]
-        self.board[src_r][src_f] = Piece.NONE
+        self.en_passant_tgt = next_en_passant
 
     @staticmethod
     def decode_alg(alg: str) -> tuple[int, int]:
