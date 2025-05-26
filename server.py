@@ -113,6 +113,7 @@ class Game:
         self.caclock = 0
 
         self.en_passant_tgt = None
+        self.castle_pos = [True, True, True, True]  # [White Kingside, White Queenside, Black Kingside, Black Queenside]
 
         self.in_progress = False
         self.ended = False
@@ -240,9 +241,18 @@ class Game:
         FEN += ' '
         FEN += 'w' if self.turn == self.WHITE_TURN else 'b'
 
-        FEN += 'KQkq'  # Change when we have castling
+        if self.castle_pos[0]:
+            FEN += 'K' 
+        if self.castle_pos[1]:
+            FEN += 'Q'
+        if self.castle_pos[2]:
+            FEN += 'k'
+        if self.castle_pos[3]:
+            FEN += 'q'
+        if not self.castle_pos[0] and not self.castle_pos[1] and not self.castle_pos[2] and not self.castle_pos[3]:
+            FEN += '-'
         FEN += ' '
-        FEN += '-'  # Change when we have en passant
+        FEN += '-' if self.en_passant_tgt == None else self.encode_alg(self.en_passant_tgt[0], self.en_passant_tgt[1])
         FEN += ' '
         FEN += str(self.caclock)
         FEN += ' '
@@ -369,6 +379,12 @@ class Game:
 
                     moves.append((nr, nf))
 
+            if self.castle_pos[((piece.value & 8) >> 3) * 2 + 1] and self.get_piece(r, f - 4) in [Piece.ROOK_W, Piece.ROOK_B] and self.get_piece(r, f - 3) == Piece.NONE and self.get_piece(r, f - 2) == Piece.NONE and self.get_piece(r, f - 1) == Piece.NONE:
+                moves.append((r, f - 2))
+
+            if self.castle_pos[((piece.value & 8) >> 3) * 2] and self.get_piece(r, f + 3) in [Piece.ROOK_W, Piece.ROOK_B] and self.get_piece(r, f + 2) == Piece.NONE and self.get_piece(r, f + 1) == Piece.NONE:
+                moves.append((r, f + 2))
+
         if piece in [Piece.ROOK_W, Piece.ROOK_B, Piece.QUEEN_W, Piece.QUEEN_B]:
             for nr in range(r + 1, 8):
                 np = self.get_piece(nr, f)
@@ -441,11 +457,27 @@ class Game:
 
         for nr, nf in moves:
             check = self.will_check(r, f, nr, nf)
+            if (check == -1 or check == 1 - ((p.value & 8) >> 3)) and p in [Piece.KING_W, Piece.KING_B]:  # Can't castle through check
+                if nf - f == 2:
+                    check = self.will_check(r, f, nr, f + 1)
+                elif nf - f == -2:
+                    check = self.will_check(r, f, nr, f - 1)
+
             if check == 2 or check == ((p.value & 8) >> 3):  # Checked yourself
                 remove.append((nr, nf))
 
+            if p in [Piece.KING_W, Piece.KING_B] and abs(nf - f) == 2:
+                move_dict = self.get_all_moves()
+                check = self.check_check(move_dict)
+                if check == 2 or check == ((p.value & 8) >> 3): 
+                    remove.append((nr, nf))
+
+
         for move in remove:
-            moves.remove(move)
+            try:
+                moves.remove(move)
+            except:
+                continue
 
         return moves
 
@@ -507,8 +539,32 @@ class Game:
 
         self.en_passant_tgt = None
 
-        if self.get_piece(src_r, src_f) in [Piece.PAWN_W, Piece.PAWN_B] and abs(dst_r - src_r) == 2:
+        piece = self.get_piece(src_r, src_f)
+
+        if piece in [Piece.PAWN_W, Piece.PAWN_B] and abs(dst_r - src_r) == 2:
             self.en_passant_tgt = (round((dst_r + src_r)/2), src_f)
+
+        elif piece in [Piece.ROOK_W, Piece.ROOK_B]:
+            if src_f == 0:
+                self.castle_pos[((piece.value & 8) >> 3) * 2 + 1] = False
+            elif src_f == 8:
+                self.castle_pos[((piece.value & 8) >> 3) * 2] = False
+
+        elif piece == Piece.KING_W:
+            self.castle_pos[0] = False
+            self.castle_pos[1] = False
+        
+        elif piece == Piece.KING_B:
+            self.castle_pos[2] = False
+            self.castle_pos[3] = False
+
+        if piece in [Piece.KING_W, Piece.KING_B]:
+            if dst_f - src_f == 2:
+                self.board[src_r][src_f + 1] = Piece(Piece.ROOK_W.value | (piece.value & 8))
+                self.board[src_r][7] = Piece.NONE
+            elif dst_f - src_f == -2:
+                self.board[src_r][src_f - 1] = Piece(Piece.ROOK_W.value | (piece.value & 8))
+                self.board[src_r][0] = Piece.NONE
 
         self.board[dst_r][dst_f] = self.board[src_r][src_f]
         self.board[src_r][src_f] = Piece.NONE
