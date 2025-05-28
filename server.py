@@ -2,6 +2,7 @@ import socket, sys, select
 from enum import Enum
 import copy
 from collections import defaultdict
+import time
 
 class IncorrectMove(Exception):
     pass
@@ -15,7 +16,7 @@ class Connection:
         self.send_queue: bytearray = bytearray()
 
     def queue_write(self, msg: str) -> None:
-        self.send_queue.extend(bytes(f"{str(len(msg)).rjust(3)}{msg}", encoding="ascii"))
+        self.send_queue.extend(bytes(f"{str(len(msg)).rjust(3, '0')}{msg}", encoding="ascii"))
 
     def write(self) -> None:
         sent = self.sock.send(self.send_queue)
@@ -719,7 +720,10 @@ class Game:
         print("Shutting down...")
 
         for con in self.write_to:
-            print(f"Closing connection to {con.sock.getpeername()}")
+            try:
+                print(f"Closing connection to {con.sock.getpeername()}")
+            except:
+                print(f"Closing connection")
             con.sock.close()
 
         self.serversocket.close()
@@ -747,14 +751,25 @@ class Game:
 
                 print(f"Connection estabilished: {address}")
 
-                try:
-                    con = self.init_con(client)
-                    if con == self.white or con == self.black:
-                        read_from.append(con.sock)
-                except Exception as err:
-                    print(f"Failed to initialize connection, because '{err}'. Shutting it down")
-                    self.blocking_write(client, "initfail")
-                    client.close()
+                if self.in_progress:
+                    con = Connection(client)
+                    con.queue_write("s")
+                    con.queue_write(self.fen_encode())
+                    con.queue_write("initok")
+                    self.write_to.append(con)
+                
+                else:
+                    try:
+                        con = self.init_con(client)
+                        if con == self.white or con == self.black:
+                            read_from.append(con.sock)
+                    except Exception as err:
+                        print(f"Failed to initialize connection, because '{err}'. Shutting it down")
+                        try:
+                            self.blocking_write(client, "initfail")
+                        except:
+                            pass
+                        client.close()
 
                 ready_read.remove(self.serversocket)
 
@@ -767,7 +782,7 @@ class Game:
                     con.write()
                 except:
                     if con != self.white and con != self.black:
-                        print(f"Spectator at {con.sock.getpeername()} closed unexpectedly. Anyway...")
+                        print(f"Spectator closed unexpectedly. Anyway...")
                         con.sock.close()
                         self.write_to.remove(con)
                     else:
@@ -913,8 +928,7 @@ class Game:
 
     @staticmethod
     def blocking_read(sock: socket.socket) -> str:
-        blocking = sock.getblocking()
-        sock.setblocking(True)
+        sock.settimeout(0.5)
 
         read_buf = bytearray(1024)
         view = memoryview(read_buf)
@@ -941,16 +955,15 @@ class Game:
 
             read_prog += recvd
 
-        sock.setblocking(blocking)
+        sock.setblocking(False)
 
         return read_buf[:msg_len].decode("ascii")
 
     @staticmethod
     def blocking_write(sock: socket.socket, msg: str) -> None:
-        blocking = sock.getblocking()
-        sock.setblocking(True)
+        sock.settimeout(0.5)
 
-        msg = bytearray(f"{str(len(msg)).rjust(3)}{msg}", encoding="ascii")
+        msg = bytearray(f"{str(len(msg)).rjust(3, '0')}{msg}", encoding="ascii")
         view = memoryview(msg)
         write_prog = 0
         msg_len = len(msg)
@@ -963,7 +976,7 @@ class Game:
 
             write_prog += sent
 
-        sock.setblocking(blocking)
+        sock.setblocking(False)
 
 
 if __name__ == "__main__":
