@@ -785,8 +785,17 @@ class Game:
                         print(f"Spectator closed unexpectedly. Anyway...")
                         con.sock.close()
                         self.write_to.remove(con)
+                        continue
+                    elif con == self.white:
+                        score = '0-1'
+                        print("White abandoned game")
                     else:
-                        raise Exception("Socket closed unexpectedly")
+                        score = '1-0'
+                        print("Black abandoned game")
+                    self.end_game(score)
+                    con.sock.close()
+                    self.write_to.remove(con)
+                        
 
             if not self.in_progress and self.white is not None and self.black is not None and not self.ended:
                 self.in_progress = True
@@ -844,7 +853,18 @@ class Game:
             if (self.turn == self.WHITE_TURN and player == self.black) or (self.turn == self.BLACK_TURN and player == self.white):
                 raise Exception("Wrong player made a move. That shouldn't be possible")
 
-            msg = player.read()
+            try:
+                msg = player.read()
+            except:
+                if player == self.white:
+                    print("White abandoned game")
+                    score = '0-1'
+                else:
+                    print("Black abandoned game")
+                    score = '1-0'
+                self.end_game(score)
+                self.write_to.remove(player)
+                msg = None
 
             if msg == None:
                 continue
@@ -913,9 +933,7 @@ class Game:
                 c.queue_write(msg)
 
             if self.ended:
-                print(score)
-                for c in self.write_to:
-                    c.queue_write("end " + score)
+                self.end_game(score)
                 read_from = []
                 continue
 
@@ -925,6 +943,13 @@ class Game:
                 read_from.append(self.white.sock)
             else:
                 read_from.append(self.black.sock)
+
+    def end_game(self, score: str) -> None:
+        print(score)
+        self.ended = True
+        self.in_progress = False
+        for c in self.write_to:
+            c.queue_write("end " + score)
 
     @staticmethod
     def blocking_read(sock: socket.socket) -> str:
