@@ -590,6 +590,7 @@ class Game:
         if (self.board[src_r][src_f].value & 8) != self.turn << 3:
             raise IncorrectMove()
         
+        self.score = "0-0"
         moves = self.moves[(src_r, src_f)]
 
         if (dst_r, dst_f) not in moves:
@@ -721,6 +722,7 @@ class Game:
 
         for con in self.write_to:
             try:
+                con.blocking_write("end " + self.score)
                 print(f"Closing connection to {con.sock.getpeername()}")
             except:
                 print(f"Closing connection")
@@ -787,12 +789,12 @@ class Game:
                         self.write_to.remove(con)
                         continue
                     elif con == self.white:
-                        score = '0-1'
+                        self.score = '0-1'
                         print("White abandoned game")
                     else:
-                        score = '1-0'
+                        self.score = '1-0'
                         print("Black abandoned game")
-                    self.end_game(score)
+                    self.end_game(self.score)
                     con.sock.close()
                     self.write_to.remove(con)
                         
@@ -858,11 +860,11 @@ class Game:
             except:
                 if player == self.white:
                     print("White abandoned game")
-                    score = '0-1'
+                    self.score = '0-1'
                 else:
                     print("Black abandoned game")
-                    score = '1-0'
-                self.end_game(score)
+                    self.score = '1-0'
+                self.end_game()
                 self.write_to.remove(player)
                 msg = None
 
@@ -888,7 +890,6 @@ class Game:
 
             check = -1
             has_moves = True
-            score = "0-0"
             try:
                 self.caclock += 1
                 self.make_move(player, msg)
@@ -904,12 +905,12 @@ class Game:
                         resp += "#"
                         self.in_progress = False
                         self.ended = True
-                        score = "1-0" if player == self.white else "0-1"
+                        self.score = "1-0" if player == self.white else "0-1"
                 elif not has_moves or self.caclock >= 100 or rep:
                     resp += "-"
                     self.in_progress = False
                     self.ended = True
-                    score = "1/2-1/2"
+                    self.score = "1/2-1/2"
                 player.queue_write(resp)
                 print(resp)
                 if self.turn == self.BLACK_TURN:
@@ -933,7 +934,7 @@ class Game:
                 c.queue_write(msg)
 
             if self.ended:
-                self.end_game(score)
+                self.end_game()
                 read_from = []
                 continue
 
@@ -944,12 +945,12 @@ class Game:
             else:
                 read_from.append(self.black.sock)
 
-    def end_game(self, score: str) -> None:
-        print(score)
+    def end_game(self) -> None:
+        print(self.score)
         self.ended = True
         self.in_progress = False
         for c in self.write_to:
-            c.queue_write("end " + score)
+            c.queue_write("end " + self.score)
 
     @staticmethod
     def blocking_read(sock: socket.socket) -> str:
