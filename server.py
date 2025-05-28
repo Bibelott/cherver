@@ -859,7 +859,6 @@ class Game:
                 self.make_move(player, msg)
                 self.moves = self.get_all_legal_moves()
                 rep = self.save_board_pos(self.turn)
-                print(self.fen_encode())
                 resp = "ok"
                 check = self.check_check()
                 has_moves = self.has_moves(player)
