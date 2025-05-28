@@ -730,7 +730,7 @@ class Game:
         
     def serve(self, port: int, pos: str = START_POS) -> None:
 
-        self.serversocket.bind((socket.gethostname(), port))
+        self.serversocket.bind(('', port))
         self.serversocket.listen(5)
 
         print(f"Server started on port {port}")
