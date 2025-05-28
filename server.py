@@ -240,10 +240,15 @@ class Game:
                     case Piece.KING_B:
                         FEN += 'k'
 
-            FEN += '/'
+            if no_len > 0:
+                FEN += str(no_len)
+                no_len = 0
+            if rank != self.board[-1]:
+                FEN += '/'
 
         FEN += ' '
         FEN += 'w' if self.turn == self.WHITE_TURN else 'b'
+        FEN += ' '
 
         if self.castle_pos[0]:
             FEN += 'K' 
@@ -852,6 +857,7 @@ class Game:
                 self.make_move(player, msg)
                 self.moves = self.get_all_legal_moves()
                 rep = self.save_board_pos(self.turn)
+                print(self.fen_encode())
                 resp = "ok"
                 check = self.check_check()
                 has_moves = self.has_moves(player)
