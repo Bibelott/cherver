@@ -1,6 +1,7 @@
 import socket, sys, select
 from enum import Enum
 import copy
+from collections import defaultdict
 
 class IncorrectMove(Exception):
     pass
@@ -117,6 +118,9 @@ class Game:
 
         self.in_progress = False
         self.ended = False
+
+        self.white_boards = defaultdict(int)
+        self.black_boards = defaultdict(int)
 
     def __enter__(self):
         return self
@@ -266,7 +270,8 @@ class Game:
         
         return self.board[r][f]
 
-    def move_piece(self, orig_r: int, orig_f: int, tgt_r: int, tgt_f: int, prom: Piece = Piece.NONE) -> None:
+    def move_piece(self, orig_r: int, orig_f: int, tgt_r: int, tgt_f: int, prom: Piece = Piece.NONE) -> bool:  # Returns True if capture occured
+        captured = False
         piece = self.get_piece(orig_r, orig_f)
 
         if piece == None:
@@ -274,8 +279,12 @@ class Game:
 
         if piece in [Piece.PAWN_W, Piece.PAWN_B] and (tgt_r, tgt_f) == self.en_passant_tgt:
             if tgt_r == 5:
+                if self.board[4][tgt_f] != Piece.NONE:
+                    captured = True
                 self.board[4][tgt_f] = Piece.NONE
             else:
+                if self.board[3][tgt_f] != Piece.NONE:
+                    captured = True
                 self.board[3][tgt_f] = Piece.NONE
 
         if piece in [Piece.PAWN_W, Piece.PAWN_B]:
@@ -290,8 +299,11 @@ class Game:
                 self.board[orig_r][orig_f - 1] = Piece(Piece.ROOK_W.value | (piece.value & 8))
                 self.board[orig_r][0] = Piece.NONE
 
+        if self.board[tgt_r][tgt_f] != Piece.NONE:
+            captured = True
         self.board[tgt_r][tgt_f] = piece
         self.board[orig_r][orig_f] = Piece.NONE
+        return captured
 
     def check_check(self, move_dict = None) -> int:  # -1 = no check, 0 = white is checked, 1 = black is checked, 2 = both checked
         if move_dict is None:
@@ -539,6 +551,24 @@ class Game:
 
         return moves
 
+    def save_board_pos(self, turn: int) -> bool:
+        if self.en_passant_tgt != None:
+            for orig_r, orig_f in self.moves.keys():
+                piece = self.get_piece(orig_r, orig_f)
+                if (piece == Piece.PAWN_W and turn == self.WHITE_TURN) or (piece == Piece.PAWN_B and turn == self.BLACK_TURN):
+                    continue
+                moves = self.moves[(orig_r, orig_f)]
+                for move in moves:
+                    if move == self.en_passant_tgt:
+                        return
+        
+        board_tuple = []
+        for row in self.board:
+            board_tuple.append(tuple(row))
+        board_tuple = tuple(board_tuple)
+        boards = self.white_boards if turn == self.WHITE_TURN else self.black_boards
+        boards[(board_tuple, tuple(self.castle_pos))] += 1   
+        return boards[(board_tuple, tuple(self.castle_pos))] >= 3
 
     def make_move(self, player: Player, move: str) -> None:
         length = len(move)
@@ -605,7 +635,10 @@ class Game:
             self.castle_pos[2] = False
             self.castle_pos[3] = False
 
-        self.move_piece(src_r, src_f, dst_r, dst_f, prom)
+        captured = self.move_piece(src_r, src_f, dst_r, dst_f, prom)
+
+        if captured or piece in [Piece.PAWN_W, Piece.PAWN_B]:
+            self.caclock = 0
 
         self.en_passant_tgt = next_en_passant
 
@@ -696,6 +729,8 @@ class Game:
         self.fen_decode(pos)
 
         self.moves = self.get_all_moves()
+        self.save_board_pos(self.turn)
+        self.save_board_pos(self.turn ^ 1)
 
         while True:
             ready_read, ready_write, _ = select.select(read_from, [c.sock for c in self.write_to if not c.queue_empty], [], 0.5)
@@ -813,8 +848,10 @@ class Game:
             has_moves = True
             score = "0-0"
             try:
+                self.caclock += 1
                 self.make_move(player, msg)
                 self.moves = self.get_all_legal_moves()
+                rep = self.save_board_pos(self.turn)
                 resp = "ok"
                 check = self.check_check()
                 has_moves = self.has_moves(player)
@@ -826,7 +863,7 @@ class Game:
                         self.in_progress = False
                         self.ended = True
                         score = "1-0" if player == self.white else "0-1"
-                elif not has_moves:
+                elif not has_moves or self.caclock >= 100 or rep:
                     resp += "-"
                     self.in_progress = False
                     self.ended = True
@@ -836,7 +873,6 @@ class Game:
                 if self.turn == self.BLACK_TURN:
                     self.move += 1
                 self.turn ^= 1
-                self.caclock += 1
             except IncorrectMove:
                 player.queue_write("no")
                 print("no")
