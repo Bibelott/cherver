@@ -709,6 +709,8 @@ class Game:
             con = Connection(sock)
             self.write_to.append(con)
 
+        self.blocking_write(sock, self.fen_encode())
+
         self.blocking_write(sock, "initok")
 
         return con
